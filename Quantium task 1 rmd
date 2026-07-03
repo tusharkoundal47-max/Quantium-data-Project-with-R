@@ -1,0 +1,222 @@
+---
+title: "Quantium Task 1"
+author: "Tushar_K"
+date: "2026-06-18"
+output: pdf_document
+classoption:landscape
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chips sales Data quantium: Cleaning and analysis
+
+#### This is the solution file for Task 1 on the lines of quantium vertual internship.
+
+## Step 1: Understanding Problem statement
+
+#### Task is to present a strategic recommendation supported by data to Julia (client), she wants to understand chip purchasing behaviour among her customer segments particularly classified under age groups.
+
+## Step 2: Preparing Data
+
+##### Customer has provided us with 2 data files. 
+
+##### 1) QVI_transaction_data (xls file)
+
+##### 2) QVI_purchase_behaviour (csv file)
+
+R is an great at handling such a combination of file types so I initiated with selecting a folder for all the tasks and using it as main directory then loading prerequisite packages.
+
+##### Now moving all the required files in same directory/ folder for easy access and loading that folder as working directory
+
+```
+# setwd("C:/Users/Admin/Downloads")
+```
+
+```{r}
+# Installing and Loading required packages
+#install.packages("tidyverse")
+#install.packages("readxl")
+#install.packages("ggplot2")
+#install.packages("readr")
+#install.packages("data.table")
+
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(readr)
+library(data.table)
+library(conflicted)
+library(lubridate)
+
+# default to the dplyr version of filter
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::lag)
+
+```
+
+
+```{r}
+#install.packages("devtools")
+devtools::install_github("r-lib/conflicted")
+library(conflicted)
+library(dplyr)
+```
+
+##### Load and Read the raw files (both xls and csv)
+
+```{r}
+# csv file
+csv_data <- read_csv("QVI_purchase_behaviour.csv")
+
+head(csv_data)
+
+# xls file
+excel_data <- read_excel("QVI_transaction_data.xlsx")
+
+head(excel_data)
+
+
+# glimpse data
+
+glimpse(csv_data)
+
+glimpse(excel_data)
+
+```
+
+##### Merge the datasets
+Upon examining the data we can see there is a primary key in both files named "LYLTY_CARD_NBR" which can help us combine the data.
+
+```{r}
+combined_data <- left_join(csv_data, excel_data, by = "LYLTY_CARD_NBR")
+
+head(combined_data)
+```
+
+## Step 3: Data cleaning
+Date data format from excel file needs to be converted in correct format, since excel counts dates as days elipsed since 1900
+
+```{r}
+library(lubridate)
+
+cleaned_data <- combined_data %>% mutate(DATE = as.Date(DATE, origin = "1899-12-30"))
+
+head(cleaned_data$DATE)
+
+```
+
+Segregating data into 3 age groups & merging individual brands
+
+```{r}
+cleaned_data <- combined_data %>% mutate(AGE_GROUP = case_when(
+str_detect(LIFESTAGE, "(?i)Young|NEW") ~ "YOUNGSTERS",
+str_detect(LIFESTAGE, "(?i)MIDAGE") ~ "MIDAGED People",
+str_detect(LIFESTAGE, "(?i)OLDER|RETIREES") ~ "OLDER People",
+TRUE ~ "Other"
+)) %>%
+
+mutate(BRAND = str_to_upper(word(PROD_NAME, 1))) %>% 
+mutate(BRAND = case_when(
+BRAND == "RRD" ~ "Red Rock Deli",
+BRAND == "SMITH" ~ "SMITH",
+BRAND == "DORITO" ~ "DORITOS",
+BRAND == "WW" ~ "WOOLWORTHS",
+BRAND == "Snbts" ~ "Sunbites",
+BRAND == "GrnWves" ~ "Grain Waves",
+TRUE ~ BRAND
+))
+```
+I also created a group in Tableau with much meticulous merging of brands while visualising this csv file via Tableau.
+
+## Step 4: Analysis of data
+
+##### I have firstly saved this cleaned data into a new csv file then analysed it using R as well as Tableau
+
+```{r}
+# Saving as csv file
+
+write_csv(cleaned_data, "cleaned_sales.csv")
+```
+
+##### Running R analysis and removing salsa products
+
+```{r}
+combined_data <- cleaned_data %>% mutate(DATE = as.Date(DATE, origin = "1899-12-30")) %>% mutate(AGE_GROUP = case_when( str_detect(LIFESTAGE, "(?i)Young|NEW") ~ "YOUNGSTERS", str_detect(LIFESTAGE, "(?i)MIDAGE") ~ "MIDAGED People", str_detect(LIFESTAGE, "(?i)OLDER|RETIREES") ~ "OLDER People", TRUE ~ "Other")) %>% mutate(BRAND = str_to_upper(word(PROD_NAME, 1))) %>% mutate(BRAND = case_when(
+    BRAND == "RRD" ~ "Red Rock Deli",
+    BRAND == "SMITH" ~ "SMITH",
+    BRAND == "DORITO" ~ "DORITOS",
+    BRAND == "WW" ~ "WOOLWORTHS",
+    BRAND == "SNBTS" ~ "Sunbites", # Ensure this matches the str_to_upper conversion
+    BRAND == "GRNWVES" ~ "Grain Waves", TRUE ~ BRAND))
+  
+```
+
+
+```{r}
+unsalsa_data <- combined_data %>% filter(!str_detect(str_to_lower(PROD_NAME), "salsa"))
+```
+
+
+## Step 5: Further Analysis for Strategic Recommendations
+
+To answer Julia's question about customer segments, we need to look at the key metrics grouped by LIFESTAGE and PREMIUM_CUSTOMER:
+
+Total Sales: Which segment brings in the most revenue?
+
+Buying Frequency/Quantity: Are they buying more bags of chips, or are there just more customers in that segment?
+
+Average Price: Which segment buys the premium/expensive chips?
+
+##### Summary table of your customer segments
+
+```{r}
+sales_summary <- unsalsa_data %>%
+  group_by(LIFESTAGE, PREMIUM_CUSTOMER) %>%
+  summarise(
+    Total_Sales = sum(TOT_SALES, na.rm = TRUE),
+    Total_Quantity = sum(PROD_QTY, na.rm = TRUE),
+    Unique_Customers = n_distinct(LYLTY_CARD_NBR),
+    .groups = 'drop'
+  ) %>%
+  mutate(Avg_Units_Per_Customer = Total_Quantity / Unique_Customers, Avg_Price_Per_Unit = Total_Sales / Total_Quantity
+  ) %>%
+  arrange(desc(Total_Sales))
+
+
+head(sales_summary)
+```
+
+## Step 6: Generating visualisations in R and then in Tableau
+
+#### Total Sales by segment
+
+```{r}
+ggplot(sales_summary, aes(x = Total_Sales, y = reorder(LIFESTAGE, Total_Sales), fill = PREMIUM_CUSTOMER)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Total Chip Sales by Customer Segment",
+    x = "Total Sales ($)",
+    y = "Customer Lifestage",
+    fill = "Customer Type"
+  ) +
+  theme_minimal()
+```
+
+
+#### Average price per unit
+
+```{r}
+ggplot(sales_summary, aes(x = Avg_Price_Per_Unit, y = reorder(LIFESTAGE, Avg_Price_Per_Unit), fill = PREMIUM_CUSTOMER)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Average Price Paid Per Unit of Chips",
+    x = "Average Price ($)",
+    y = "Customer Lifestage",
+    fill = "Customer Type"
+  ) +
+  theme_minimal()
+```
+
+#### Generating visuals from cleaned csv file in Tableau, extracting graphs and generating report in powerpoint then exporting final report in pdf format.
